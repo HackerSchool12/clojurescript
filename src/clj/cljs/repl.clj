@@ -8,6 +8,7 @@
 
 (ns cljs.repl
   (:refer-clojure :exclude [load-file])
+  (:import java.io.File)
   (:require [clojure.string :as string]
             [clojure.java.io :as io]
             [cljs.compiler :as comp]
@@ -149,9 +150,19 @@
      'clojure.core/load-file load-file-fn
      'load-namespace (fn [repl-env ns] (load-namespace repl-env ns))}))
 
+(defn load-project-source [src-dir]
+  (when-not (empty? src-dir)
+    (let [file (File. src-dir)]
+      (doseq [f (.listFiles file)]
+        (let [absolute-path (.getAbsolutePath f)]
+          (if (.isDirectory f)
+            (load-project-source absolute-path)
+            (when (re-find #"\.cljs$" absolute-path)
+              (ana/analyze-file (str "file://" absolute-path)))))))))
+
 (defn repl
   "Note - repl will reload core.cljs every time, even if supplied old repl-env"
-  [repl-env & {:keys [verbose warn-on-undeclared special-fns]}]
+  [repl-env & {:keys [verbose warn-on-undeclared special-fns src]}]
   (prn "Type: " :cljs/quit " to quit")
   (binding [ana/*cljs-ns* 'cljs.user
             *cljs-verbose* verbose
@@ -160,18 +171,19 @@
           special-fns (merge default-special-fns special-fns)
           is-special-fn? (set (keys special-fns))]
       (-setup repl-env)
+      (load-project-source src)
       (loop []
         (print (str "ClojureScript:" ana/*cljs-ns* "> "))
         (flush)
         (let [{:keys [status form]} (read-next-form)]
           (cond
            (= form :cljs/quit) :quit
-           
+
            (= status :error) (recur)
-           
+
            (and (seq? form) (is-special-fn? (first form)))
            (do (apply (get special-fns (first form)) repl-env (rest form)) (newline) (recur))
-           
+
            :else
            (do (eval-and-print repl-env env form) (recur)))))
       (-tear-down repl-env))))

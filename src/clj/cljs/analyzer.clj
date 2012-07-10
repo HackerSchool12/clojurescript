@@ -10,6 +10,7 @@
 
 (ns cljs.analyzer
   (:refer-clojure :exclude [macroexpand-1])
+  (:import java.io.File)
   (:require [clojure.java.io :as io]
             [clojure.string :as string]
             [cljs.tagged-literals :as tags])
@@ -290,6 +291,7 @@
               ([_ sym doc init] {:sym sym :doc doc :init init}))
         args (apply pfn form)
         sym (:sym args)
+        sym-meta (meta sym)
         tag (-> sym meta :tag)
         protocol (-> sym meta :protocol)
         dynamic (-> sym meta :dynamic)
@@ -326,6 +328,7 @@
                (let [m (assoc (or m {}) :name name)]
                  (merge m
                    (when tag {:tag tag})
+                   (when sym-meta sym-meta)
                    (when dynamic {:dynamic true})
                    (when-let [line (:line env)]
                      {:file *cljs-file* :line line})
@@ -533,7 +536,7 @@
      (when (and known-num-fields (not= known-num-fields argc))
        (warning env
          (str "WARNING: Wrong number of args (" argc ") passed to " ctor)))
-     
+
      {:env env :op :new :form form :ctor ctorexpr :args argexprs
       :children (into [ctorexpr] argexprs)})))
 
@@ -677,7 +680,7 @@
                        :type true
                        :num-fields (count fields))]
                (merge m
-                 {:protocols (-> tsym meta :protocols)}     
+                 {:protocols (-> tsym meta :protocols)}
                  (when-let [line (:line env)]
                    {:file *cljs-file*
                     :line line})))))
@@ -935,12 +938,11 @@
         :else {:op :constant :env env :form form}))))
 
 (defn analyze-file
-  [f]
-  (let [res (if (= \/ (first f)) f (io/resource f))]
+  [^String f]
+  (let [res (if (re-find #"^file://" f) (java.net.URL. f) (io/resource f))]
     (assert res (str "Can't find " f " in classpath"))
     (binding [*cljs-ns* 'cljs.user
-              *cljs-file* (.getPath ^java.net.URL res)
-              *ns* *reader-ns*]
+              *cljs-file* (.getPath ^java.net.URL res)]
       (with-open [r (io/reader res)]
         (let [env (empty-env)
               pbr (clojure.lang.LineNumberingPushbackReader. r)
@@ -950,4 +952,3 @@
               (when-not (identical? eof r)
                 (analyze env r)
                 (recur (read pbr false eof false))))))))))
-
