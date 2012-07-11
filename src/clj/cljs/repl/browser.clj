@@ -8,59 +8,31 @@
 
 (ns cljs.repl.browser
   (:refer-clojure :exclude [loaded-libs])
-  (:require [clojure.string :as str]
-            [clojure.java.io :as io]
+  (:require [clojure.java.io :as io]
             [cljs.compiler :as comp]
             [cljs.closure :as cljsc]
             [cljs.repl :as repl]
             [cljs.repl.server :as server])
-  (:import java.io.BufferedReader
-           java.io.BufferedWriter
-           java.io.InputStreamReader
-           java.io.OutputStreamWriter
-           java.net.Socket
-           java.net.ServerSocket
-           cljs.repl.IJavaScriptEnv))
+  (:import cljs.repl.IJavaScriptEnv))
+
+(defonce browser-state (atom {:return-value-fn nil
+                              :client-js nil}))
 
 (def loaded-libs (atom #{}))
 (def preloaded-libs (atom #{}))
-
-(defn- connection
-  "Promise to return a connection when one is available. If a
-  connection is not available, store the promise in server/state."
-  []
-  (let [p (promise)
-        conn (:connection @server/state)]
-    (if (and conn (not (.isClosed conn)))
-      (do (deliver p conn)
-          p)
-      (do (swap! server/state (fn [old] (assoc old :promised-conn p)))
-          p))))
-
-(defn- set-connection
-  "Given a new available connection, either use it to deliver the
-  connection which was promised or store the connection for later
-  use."
-  [conn]
-  (if-let [promised-conn (:promised-conn @server/state)]
-    (do (swap! server/state (fn [old] (-> old
-                                         (assoc :connection nil)
-                                         (assoc :promised-conn nil))))
-        (deliver promised-conn conn))
-    (swap! server/state (fn [old] (assoc old :connection conn)))))
 
 (defn- set-return-value-fn
   "Save the return value function which will be called when the next
   return value is received."
   [f]
-  (swap! server/state (fn [old] (assoc old :return-value-fn f))))
+  (swap! browser-state (fn [old] (assoc old :return-value-fn f))))
 
 (defn send-for-eval
   "Given a form and a return value function, send the form to the
   browser for evaluation. The return value function will be called
   when the return value is received."
   ([form return-value-fn]
-     (send-for-eval @(connection) form return-value-fn))
+     (send-for-eval @(server/connection) form return-value-fn))
   ([conn form return-value-fn]
      (do (set-return-value-fn return-value-fn)
          (server/send-and-close conn 200 form "text/javascript"))))
@@ -68,20 +40,11 @@
 (defn- return-value
   "Called by the server when a return value is received."
   [val]
-  (when-let [f (:return-value-fn @server/state)]
+  (when-let [f (:return-value-fn @browser-state)]
     (f val)))
 
-(comment
-
-  (parse-headers
-   ["Host: www.mysite.com"
-    "User-Agent: Mozilla/4.0"
-    "Content-Length: 27"
-    "Content-Type: application/x-www-form-urlencoded"])
-)
-
 (defn repl-client-js []
-  (slurp @(:client-js @server/state)))
+  (slurp @(:client-js @browser-state)))
 
 (defn send-repl-client-page
   [opts conn request]
@@ -112,24 +75,21 @@
         (server/send-404 conn path)))
     (server/send-404 conn path)))
 
-(defn handle-get [opts conn request]
-  (let [path (:path request)]
-    (cond
-     (.startsWith path "/repl") (send-repl-client-page opts conn request)
-     (:serve-static opts) (send-static opts conn request)
-     :else (server/send-404 conn (:path request)))))
+(server/dispatch-on :get
+                    (fn [_ _ {:keys [path]}] (.startsWith path "/repl"))
+                    send-repl-client-page)
 
-(server/register-handler :get (fn [& xs] true) handle-get)
+(server/dispatch-on :get
+                    (fn [opts _ _] (:serve-static opts))
+                    send-static)
 
-(declare browser-eval)
+(defmulti handle-post (fn [_ _ m] (:type m)))
+
+(server/dispatch-on :post (constantly true) handle-post)
 
 (def ordering (agent {:expecting nil :fns {}}))
 
-(defmulti handle-post (fn [_ m] (:type m)))
-
-(server/register-handler :post (fn [& xs] true) handle-post)
-
-(defmethod handle-post :ready [conn _]
+(defmethod handle-post :ready [_ conn _]
   (do (reset! loaded-libs @preloaded-libs)
       (send ordering (fn [_] {:expecting nil :fns {}}))
       (send-for-eval conn
@@ -156,14 +116,14 @@
   (send-off ordering add-in-order order f)
   (send-off ordering run-in-order))
 
-(defmethod handle-post :print [conn {:keys [content order]}]
+(defmethod handle-post :print [_ conn {:keys [content order]}]
   (do (constrain-order order (fn [] (do (print (read-string content))
                                        (.flush *out*))))
       (server/send-and-close conn 200 "ignore__")))
 
-(defmethod handle-post :result [conn {:keys [content order]}]
+(defmethod handle-post :result [_ conn {:keys [content order]}]
   (constrain-order order (fn [] (do (return-value content)
-                                   (set-connection conn)))))
+                                   (server/set-connection conn)))))
 
 (defn browser-eval
   "Given a string of JavaScript, evaluate it in the browser and return a map representing the
@@ -197,12 +157,13 @@
 (extend-protocol repl/IJavaScriptEnv
   clojure.lang.IPersistentMap
   (-setup [this]
-    (comp/with-core-cljs (server/start-server this)))
+    (comp/with-core-cljs (server/start this)))
   (-evaluate [_ _ _ js] (browser-eval js))
   (-load [this ns url] (load-javascript this ns url))
   (-tear-down [_]
-    (do (server/stop-server)
-        (reset! server/state {}))))
+    (do (server/stop)
+        (reset! server/state {})
+        (reset! browser-state {}))))
 
 (defn compile-client-js [opts]
   (cljsc/build '[(ns clojure.browser.repl.client
@@ -264,7 +225,7 @@
                     opts)]
     (do (reset! preloaded-libs (set (concat (always-preload) (map str (:preloaded-libs opts)))))
         (reset! loaded-libs @preloaded-libs)
-        (swap! server/state
+        (swap! browser-state
                (fn [old] (assoc old :client-js
                                (future (create-client-js-file
                                         opts

@@ -15,21 +15,46 @@
 
 (defonce state (atom {:socket nil
                       :connection nil
-                      :promised-conn nil
-                      :return-value-fn nil
-                      :client-js nil}))
+                      :promised-conn nil}))
 
-(defonce handlers (atom {:get []
-                         :post []}))
+(defn connection
+  "Promise to return a connection when one is available. If a
+  connection is not available, store the promise in server/state."
+  []
+  (let [p (promise)
+        conn (:connection @state)]
+    (if (and conn (not (.isClosed conn)))
+      (do (deliver p conn)
+          p)
+      (do (swap! state (fn [old] (assoc old :promised-conn p)))
+          p))))
 
-(defn register-handler
-  ; TODO fix shitty docstring
-  "Dispatches to the first method handler for which pred returns true."
+(defn set-connection
+  "Given a new available connection, either use it to deliver the
+  connection which was promised or store the connection for later
+  use."
+  [conn]
+  (if-let [promised-conn (:promised-conn @state)]
+    (do (swap! state (fn [old] (-> old
+                                         (assoc :connection nil)
+                                         (assoc :promised-conn nil))))
+        (deliver promised-conn conn))
+    (swap! state (fn [old] (assoc old :connection conn)))))
+
+(defonce handlers (atom {}))
+
+(defn dispatch-on
+  "Registers a handler to be dispatched based on a request method and a
+  predicate.
+
+  pred should be a function that accepts an options map, a connection,
+  and a request map and returns a boolean value based on whether or not
+  that request should be dispatched to the related handler."
   ([method pred handler]
-     (register-handler method {:pred pred :handler handler}))
+     (dispatch-on method {:pred pred :handler handler}))
   ([method {:as m}]
      (swap! handlers (fn [old]
-                       (assoc old method (conj (method old) m))))))
+                       (assoc old method (conj (vec (method old)) m))))))
 
 ;;; assumes first line already consumed
 (defn parse-headers
@@ -110,38 +135,39 @@
                        "</body></html>")
                   "text/html"))
 
-(defn dispatch-request [request opts conn]
+(defn- dispatch-request [request conn opts]
   (if-let [handlers ((:method request) @handlers)]
     (if-let [handler (some (fn [{:keys [pred handler]}]
                              (when (pred opts conn request)
-                               handler)) handlers)]
+                               handler))
+                           handlers)]
       (if (= :post (:method request))
-        (handler conn (read-string (:content request)))
+        (handler opts conn (read-string (:content request)))
         (handler opts conn request))
       (send-404 conn (:path request)))
     (.close conn)))
 
-(defn handle-connection
+(defn- handle-connection
   [opts conn]
   (let [rdr (BufferedReader. (InputStreamReader. (.getInputStream conn)))]
     (if-let [request (read-request rdr)]
-      (dispatch-request request opts conn)
+      (dispatch-request request conn opts)
       (.close conn))))
 
-(defn server-loop
+(defn- server-loop
   [opts server-socket]
   (let [conn (.accept server-socket)]
     (do (.setKeepAlive conn true)
         (future (handle-connection opts conn))
         (recur opts server-socket))))
 
-(defn start-server
+(defn start
   "Start the server on the specified port."
   [opts]
   (let [ss (ServerSocket. (:port opts))]
     (future (server-loop opts ss))
     (swap! state (fn [old] (assoc old :socket ss :port (:port opts))))))
 
-(defn stop-server
+(defn stop
   []
   (.close (:socket @state)))
