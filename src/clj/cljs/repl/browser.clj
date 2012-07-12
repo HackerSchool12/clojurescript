@@ -59,7 +59,7 @@
          "</body></html>")
     "text/html"))
 
-(defn send-static [{path :path :as request} conn opts ]
+(defn send-static [{path :path :as request} conn opts]
   (if (and (:static-dir opts)
            (not= "/favicon.ico" path))
     (let [path   (if (= "/" path) "/index.html" path)
@@ -76,11 +76,13 @@
     (server/send-404 conn path)))
 
 (server/dispatch-on :get
-                    (fn [{:keys [path]} _ _ ] (.startsWith path "/repl"))
+                    (fn [{:keys [path]} _ _] (.startsWith path "/repl"))
                     send-repl-client-page)
 
 (server/dispatch-on :get
-                    (fn [_ _ opts] (:serve-static opts))
+                    (fn [{:keys [path]} _ _] (or (= path "/")
+                                                (.endsWith path ".js")
+                                                (.endsWith path ".html")))
                     send-static)
 
 (defmulti handle-post (fn [m _ _ ] (:type m)))
@@ -157,7 +159,8 @@
 (extend-protocol repl/IJavaScriptEnv
   clojure.lang.IPersistentMap
   (-setup [this]
-    (comp/with-core-cljs (server/start this)))
+    (do (require 'cljs.repl.reflect)
+        (comp/with-core-cljs (server/start this))))
   (-evaluate [_ _ _ js] (browser-eval js))
   (-load [this ns url] (load-javascript this ns url))
   (-tear-down [_]
