@@ -47,7 +47,7 @@
   (slurp @(:client-js @browser-state)))
 
 (defn send-repl-client-page
-  [opts conn request]
+  [request conn opts]
   (server/send-and-close conn 200
     (str "<html><head><meta charset=\"UTF-8\"></head><body>
           <script type=\"text/javascript\">"
@@ -59,7 +59,7 @@
          "</body></html>")
     "text/html"))
 
-(defn send-static [opts conn {path :path :as request}]
+(defn send-static [{path :path :as request} conn opts ]
   (if (and (:static-dir opts)
            (not= "/favicon.ico" path))
     (let [path   (if (= "/" path) "/index.html" path)
@@ -76,14 +76,14 @@
     (server/send-404 conn path)))
 
 (server/dispatch-on :get
-                    (fn [_ _ {:keys [path]}] (.startsWith path "/repl"))
+                    (fn [{:keys [path]} _ _ ] (.startsWith path "/repl"))
                     send-repl-client-page)
 
 (server/dispatch-on :get
-                    (fn [opts _ _] (:serve-static opts))
+                    (fn [_ _ opts] (:serve-static opts))
                     send-static)
 
-(defmulti handle-post (fn [_ _ m] (:type m)))
+(defmulti handle-post (fn [m _ _ ] (:type m)))
 
 (server/dispatch-on :post (constantly true) handle-post)
 
@@ -116,12 +116,12 @@
   (send-off ordering add-in-order order f)
   (send-off ordering run-in-order))
 
-(defmethod handle-post :print [_ conn {:keys [content order]}]
+(defmethod handle-post :print [{:keys [content order]} conn _ ]
   (do (constrain-order order (fn [] (do (print (read-string content))
                                        (.flush *out*))))
       (server/send-and-close conn 200 "ignore__")))
 
-(defmethod handle-post :result [_ conn {:keys [content order]}]
+(defmethod handle-post :result [{:keys [content order]} conn _ ]
   (constrain-order order (fn [] (do (return-value content)
                                    (server/set-connection conn)))))
 

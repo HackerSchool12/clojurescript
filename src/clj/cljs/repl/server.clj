@@ -138,12 +138,12 @@
 (defn- dispatch-request [request conn opts]
   (if-let [handlers ((:method request) @handlers)]
     (if-let [handler (some (fn [{:keys [pred handler]}]
-                             (when (pred opts conn request)
+                             (when (pred request conn opts)
                                handler))
                            handlers)]
       (if (= :post (:method request))
-        (handler opts conn (read-string (:content request)))
-        (handler opts conn request))
+        (handler (read-string (:content request)) conn opts )
+        (handler request conn opts))
       (send-404 conn (:path request)))
     (.close conn)))
 
