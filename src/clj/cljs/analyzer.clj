@@ -10,6 +10,7 @@
 
 (ns cljs.analyzer
   (:refer-clojure :exclude [macroexpand-1])
+  (:import java.io.File)
   (:require [clojure.java.io :as io]
             [clojure.string :as string]
             [cljs.tagged-literals :as tags])
@@ -923,11 +924,11 @@
         :else {:op :constant :env env :form form}))))
 
 (defn analyze-file
-  [f]
-  (let [res (if (= \/ (first f)) f (io/resource f))]
+  [^String f]
+  (let [res (if (= \/ (first f)) (File. f) (io/resource f))]
     (assert res (str "Can't find " f " in classpath"))
     (binding [*cljs-ns* 'cljs.user
-              *cljs-file* (.getPath ^java.net.URL res)]
+              *cljs-file* (.getPath ^File res)]
       (with-open [r (io/reader res)]
         (let [env (empty-env)
               pbr (clojure.lang.LineNumberingPushbackReader. r)
