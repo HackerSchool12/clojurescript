@@ -54,7 +54,7 @@
      (dispatch-on method {:pred pred :handler handler}))
   ([method {:as m}]
      (swap! handlers (fn [old]
-                       (assoc old method (conj (vec (method old)) m))))))
+                       (update-in old [method] #(conj (vec %) m))))))
 
 ;;; assumes first line already consumed
 (defn parse-headers
