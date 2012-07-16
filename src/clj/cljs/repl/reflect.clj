@@ -22,12 +22,10 @@
   (let [ns (symbol (namespace sym))
         n  (symbol (name sym))]
     (if-let [sym-meta (get (:defs (get @analyzer/namespaces ns)) n)]
-      (dissoc-unless sym-meta
-                     #{:name :arglists :doc :line :file}))))
-
-(defn- get-var [{:keys [content]}]
-  (let [content (read-string content)]
-    (-get-meta content)))
+      (-> (dissoc-unless sym-meta
+                         #{:name :method-params :doc :line :file})
+          (update-in [:name] str)
+          (update-in [:method-params] #(str (vec %)))))))
 
 (defn- url-decode [encoded & [encoding]]
   (java.net.URLDecoder/decode encoded (or encoding "UTF-8")))
@@ -40,7 +38,7 @@
                                     (url-decode)
                                     (read-string))
                             ast (analyzer/analyze {:ns {:name 'cljs.user}}
-                                                  ;; Replace with -get-meta
-                                                  {:item (str sym)})
-                            js  (comp/emit-str ast)]
+                                                  (get-meta sym))
+                            js  (try (comp/emit-str ast)
+                                     (catch Exception e (println e)))]
                         (server/send-and-close conn 200 js "text/javascript"))))
