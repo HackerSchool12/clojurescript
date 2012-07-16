@@ -19,5 +19,5 @@
 (defn doc [{:keys [name method-params doc]}]
   (when-not (empty? name)
     (println name)
-    (println "(" method-params ")")
+    (println method-params)
     (println doc)))

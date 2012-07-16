@@ -160,6 +160,7 @@
   clojure.lang.IPersistentMap
   (-setup [this]
     (do (require 'cljs.repl.reflect)
+        (repl/analyze-source (:src this))
         (comp/with-core-cljs (server/start this))))
   (-evaluate [_ _ _ js] (browser-eval js))
   (-load [this ns url] (load-javascript this ns url))
@@ -217,6 +218,8 @@
                   loading code and reloading it would cause a problem.
   optimizations:  The level of optimization to use when compiling the client
                   end of the REPL. Defaults to :simple.
+  src:            A path to the containing directory for user cljs code. This is
+                  used to support code reflection of user-defined source.
   "
   [& {:as opts}]
   (let [opts (merge {:port          9000
@@ -224,6 +227,7 @@
                      :working-dir   ".repl"
                      :serve-static  true
                      :static-dir    ["." "out/"]
+                     :src           "src/"
                      :preloaded-libs   []}
                     opts)]
     (do (reset! preloaded-libs (set (concat (always-preload) (map str (:preloaded-libs opts)))))
