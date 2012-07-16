@@ -158,7 +158,7 @@
           (if (.isDirectory f)
             (load-project-source absolute-path)
             (when (re-find #"\.cljs$" absolute-path)
-              (ana/analyze-file absolute-path))))))))
+              (ana/analyze-file (str "file://" absolute-path)))))))))
 
 (defn repl
   "Note - repl will reload core.cljs every time, even if supplied old repl-env"

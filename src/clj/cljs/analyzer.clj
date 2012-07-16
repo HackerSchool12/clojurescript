@@ -10,6 +10,7 @@
 
 (ns cljs.analyzer
   (:refer-clojure :exclude [macroexpand-1])
+  (:import java.io.File)
   (:require [clojure.java.io :as io]
             [clojure.string :as string]
             [cljs.tagged-literals :as tags])
@@ -924,7 +925,7 @@
 
 (defn analyze-file
   [^String f]
-  (let [res (if (= \/ (first f)) (java.net.URL. f) (io/resource f))]
+  (let [res (if (re-find #"^file://" f) (java.net.URL. f) (io/resource f))]
     (assert res (str "Can't find " f " in classpath"))
     (binding [*cljs-ns* 'cljs.user
               *cljs-file* (.getPath res)]
@@ -937,4 +938,3 @@
               (when-not (identical? eof r)
                 (analyze env r)
                 (recur (read pbr false eof false))))))))))
-
