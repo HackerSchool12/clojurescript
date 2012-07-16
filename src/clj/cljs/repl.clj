@@ -151,7 +151,7 @@
      'load-namespace (fn [repl-env ns] (load-namespace repl-env ns))}))
 
 (defn load-project-source [src-dir]
-  (when src-dir
+  (when-not (empty? src-dir)
     (let [file (File. src-dir)]
       (doseq [f (.listFiles file)]
         (let [absolute-path (.getAbsolutePath f)]
@@ -178,12 +178,12 @@
         (let [{:keys [status form]} (read-next-form)]
           (cond
            (= form :cljs/quit) :quit
-           
+
            (= status :error) (recur)
-           
+
            (and (seq? form) (is-special-fn? (first form)))
            (do (apply (get special-fns (first form)) repl-env (rest form)) (newline) (recur))
-           
+
            :else
            (do (eval-and-print repl-env env form) (recur)))))
       (-tear-down repl-env))))
