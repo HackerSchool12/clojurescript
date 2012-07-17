@@ -150,19 +150,18 @@
      'clojure.core/load-file load-file-fn
      'load-namespace (fn [repl-env ns] (load-namespace repl-env ns))}))
 
-(defn load-project-source [src-dir]
-  (when-not (empty? src-dir)
-    (let [file (File. src-dir)]
-      (doseq [f (.listFiles file)]
-        (let [absolute-path (.getAbsolutePath f)]
-          (if (.isDirectory f)
-            (load-project-source absolute-path)
-            (when (re-find #"\.cljs$" absolute-path)
-              (ana/analyze-file (str "file://" absolute-path)))))))))
+(defn analyze-source
+  "Given a source directory, analyzes all .cljs files. Used to populate
+  cljs.analyzer/namespaces so as to support code reflection."
+  [src-dir]
+  (if-let [src-dir (and (not (empty? src-dir))
+                     (File. src-dir))]
+    (doseq [file (comp/cljs-files-in src-dir)]
+      (ana/analyze-file (str "file://" (.getAbsolutePath file))))))
 
 (defn repl
   "Note - repl will reload core.cljs every time, even if supplied old repl-env"
-  [repl-env & {:keys [verbose warn-on-undeclared special-fns src]}]
+  [repl-env & {:keys [verbose warn-on-undeclared special-fns]}]
   (prn "Type: " :cljs/quit " to quit")
   (binding [ana/*cljs-ns* 'cljs.user
             *cljs-verbose* verbose
@@ -171,7 +170,6 @@
           special-fns (merge default-special-fns special-fns)
           is-special-fn? (set (keys special-fns))]
       (-setup repl-env)
-      (load-project-source src)
       (loop []
         (print (str "ClojureScript:" ana/*cljs-ns* "> "))
         (flush)
