@@ -227,8 +227,8 @@
                      :working-dir   ".repl"
                      :serve-static  true
                      :static-dir    ["." "out/"]
-                     :preloaded-libs   []
-                     :src           "src/"}
+                     :src           "src/"
+                     :preloaded-libs   []}
                     opts)]
     (do (reset! preloaded-libs (set (concat (always-preload) (map str (:preloaded-libs opts)))))
         (reset! loaded-libs @preloaded-libs)

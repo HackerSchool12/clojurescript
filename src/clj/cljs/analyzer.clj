@@ -928,7 +928,7 @@
   (let [res (if (re-find #"^file://" f) (java.net.URL. f) (io/resource f))]
     (assert res (str "Can't find " f " in classpath"))
     (binding [*cljs-ns* 'cljs.user
-              *cljs-file* (.getPath res)]
+              *cljs-file* (.getPath ^java.net.URL res)]
       (with-open [r (io/reader res)]
         (let [env (empty-env)
               pbr (clojure.lang.LineNumberingPushbackReader. r)
